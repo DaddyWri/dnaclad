@@ -8,7 +8,7 @@ package org.dnaclad;
  *
  * The terminus of a path is either a pair of parents, or just one or the other
  * parent.  Paths can only be extended if they do not contain both parents -- it is
- * always the uninclude parent that is extended in that case.
+ * always the unincluded parent(s) that is/are extended in that case.
  */
 public class Path {
     /** Number of intervening generations */

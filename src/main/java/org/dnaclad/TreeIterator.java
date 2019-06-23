@@ -50,7 +50,12 @@ public class TreeIterator {
         return null;
     }
 
+    /**
+     * Some paths are only used in the context of extension, so they
+     * are built and extended but not added to the final set.
+     */
     private static enum SexState {
+        NEITHER,
         MALEONLY,
         FEMALEONLY,
         BOTH
@@ -90,26 +95,55 @@ public class TreeIterator {
 
         // Note about implementation:
         //
-        // If the maximumPaths parameter was one, this iterator would be trivially
-        // simple: it would walk from the lowest level match to the max depth, and for each
-        // level it would return three Paths: one male, one female, and one both.
-        // When we add a second path, then we cycle through both of these in the same way.
-        // BUT we also have to add another iteration: for each time there's a male or
-        // female path, we also iterate through the extension of those paths as well.
+        // This iterator is supposed to produce a collection of Path objects that represent
+        // assignment points to the main profile.  The iterator has some constraints: a
+        // minimum depth for assignments, a maximum depth under consideration, and a maximum
+        // number of assignments.  Otherwise it is supposed to walk through all combinations
+        // of assignments for a given match profile.
         //
-        // Three maximum paths would require a more complex treatment, where for
-        // every Path we find, we generate only that path, then 1 additional extension to the
-        // path, then 2 additional extensions to the path, then 1 unrelated path, then 1 unrelated path plus
-        // an extension, then 2 unrelated paths.
+        // The representation for a Path deliberately collapses stuff we do not care about
+        // so that the iteration has the fewest steps possible.  We could, for example, have
+        // go through combinations of all exact ancestors in the tree for a MatchProfile
+        // and prune out what we've already seen, but that requires a lot more computation
+        // than not generating stuff we don't care about in the first place.  The Path
+        // representation is designed to help us do that, since it glosses over the precise
+        // details of each path to concentrate only on the important variants, such as how
+        // paths relate to one another.  But nevertheless, we must always keep in mind that
+        // we are computing a set of Paths on every iteration that are self-consistent, and
+        // consistent with the canonical ancestor hierarchy for the MatchProfile these apply
+        // to.
         //
-        // This can, of course, be generalized, which is what I'm going to attempt to do here.
+        // It is therefore critical to not hypothesize more ancestors at any given level than
+        // there really can be.
+        //
+        // Note that if we limited the iteration to a max assignment count of 1, the
+        // implementation would be trivial, because each path so computed would go all the
+        // way back to the root of the profile with no intervening nodes.  As soon
+        // as multiple assignments are possible, though, intervening nodes are essential
+        // because the root profile has only one set of parents and all paths have to go
+        // through them.  In fact, if there is no node representing the direct parents of
+        // the root profile, then only one actual assignment with an unbroken path to the
+        // root is possible.
+        //
+        // I've therefore structured the iterator around the selection of the lowest-level
+        // intersection node.  The first level iteration goes over all possible choices for
+        // this.  If the node has a high enough level, the female-only, male-only, and both
+        // states will also be explored.  If the node has the maximum level, then the "neither"
+        // state will *not* be explored, since no ancestors would be possible.
+        //
+        // Once that node is selected, then based on where it is, derivative Paths that
+        // include it will also be explored.  These can be handled recursively.  I still have
+        // to work through the terms of the recursion, however.  But if the number of
+        // derived paths can be guaranteed to be no more than 4, we can avoid any need to
+        // maintain auxilliary structures that limit the number of ancestors allocated at
+        // every level.
         
         // Iterator characteristics
         
         private final int lowestLevelMatch;
         private final int maxDepth;
         private final int maximumPaths;
-        private final boolean isMale;
+        private final boolean isRootProfileMale;
         
         // Link to next MatchState, for the next independent path
 
@@ -123,10 +157,13 @@ public class TreeIterator {
         private MultiState includeNextState;
         
         public MatchState(int lowestLevelMatch, int maxDepth, int maximumPaths, boolean isMale) {
+            if (maximumPaths > 4) {
+                throw new IllegalArgumentException("Iterator can only work when maximum number of paths is 4 or less");
+            }
             this.lowestLevelMatch = lowestLevelMatch;
             this.maxDepth = maxDepth;
             this.maximumPaths = maximumPaths;
-            this.isMale = isMale;
+            this.isRootProfileMale = isMale;
             if (maximumPaths > 1) {
                 nextIndependentPath = new MatchState(lowestLevelMatch, maxDepth, maximumPaths-1, isMale);
             } else {
