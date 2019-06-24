@@ -62,8 +62,9 @@ public class TreeIterator {
     };
 
     private static enum MultiState {
-        JUSTTHIS,
-        THISPLUSNEXT
+        PATHONLY,
+        MALESIDEEXTENSION,
+        FEMALESIDEEXTENSION
     };
 
     static class MatchIterator {
@@ -139,36 +140,72 @@ public class TreeIterator {
         // every level.
         
         // Iterator characteristics
-        
-        private final int lowestLevelMatch;
-        private final int maxDepth;
-        private final int maximumPaths;
-        private final boolean isRootProfileMale;
-        
-        // Link to next MatchState, for the next independent path
 
-        private final MatchState nextIndependentPath;
+        /** Path to extend (or null if root profile) */
+        private final Path pathToExtend;
+        /** Starting depth; assume an articulation node here */
+        private final int depth;  // 0 = root profile; 1 = parents of root profile
+        /** The lowest level we're allowed to create an actual match for */
+        private final int lowestLevelMatch; // 1 = parents; 2 = grandparents
+        /** The maximum depth we're allowed to consider */
+        private final int maxDepth;
+        /** The maximum number of Paths we should generate from this iterator */
+        private final int maximumPaths;
+        /** This describes whether the profile for the node at the stated depth is male */
+        private final boolean isPathProfileMale;
         
         // Iterator state
 
-        // Currently sufficient only for independent assignments; dependent ones need more work
-        private SexState sexState;
-        private int currentStateLevel;
-        private MultiState includeNextState;
+        // The sequence of states is as follows:
+        // (1) We start in sexState NEITHER, and currentDepth one above the starting depth.
+        // (2) For iteration:
+        //     - If the maximum number of Paths to generate is zero, we return right away
+        //     - If the currentLevel is maxDepth, return null
+        //     - Generate a Path to extend the current Path, using the current SexState
+        //     - Extend the male side, by creating a MatchState that represents it, and set
+        //       a flag indicating it should be iterated over
+        //     - Extend the female side, by creating a MatchState that represents it, and
+        //       set the state indicating it should be iterated over
+        //     - Advance to the next SexState, skipping as appropriate based on position in
+        //       hierarchy
+        //     - Advance currentLevel
+        //
+        // To do this we need an overall state variable describing where we are in the extension
+        // process. This will be called "MultiState".
         
-        public MatchState(int lowestLevelMatch, int maxDepth, int maximumPaths, boolean isMale) {
+        /** The current sex state at the node this MatchState was created for */
+        private SexState sexState;
+        /** The current depth */
+        private int currentDepth;
+        /** The multi-state */
+        private MultiState multiState;
+        /** Depending on the multiState value, we keep an extension path */
+        private Path extensionPath;
+        /** Depending on the multiState value, we keep the extension iterator around too */
+        private MatchState extensionIterator;
+        
+        public MatchState(final int lowestLevelMatch,
+                          final int maxDepth,
+                          final int maximumPaths,
+                          final boolean rootProfileIsMale) {
+            this(null, 0, lowestLevelMatch, maxDepth, maximumPaths, rootProfileIsMale);
+        }
+        
+        public MatchState(final Path pathToExtend,
+                          final int depth,
+                          final int lowestLevelMatch,
+                          final int maxDepth,
+                          final int maximumPaths,
+                          final boolean pathProfileIsMale) {
             if (maximumPaths > 4) {
                 throw new IllegalArgumentException("Iterator can only work when maximum number of paths is 4 or less");
             }
+            this.pathToExtend = pathToExtend;
+            this.depth = depth;
             this.lowestLevelMatch = lowestLevelMatch;
             this.maxDepth = maxDepth;
             this.maximumPaths = maximumPaths;
-            this.isRootProfileMale = isMale;
-            if (maximumPaths > 1) {
-                nextIndependentPath = new MatchState(lowestLevelMatch, maxDepth, maximumPaths-1, isMale);
-            } else {
-                nextIndependentPath = null;
-            }
+            this.isPathProfileMale = pathProfileIsMale;
             reset();
         }
         
@@ -176,90 +213,180 @@ public class TreeIterator {
          * Reset to the beginning of the sequence.
          */
         public void reset() {
-            sexState = SexState.FEMALEONLY;
-            currentStateLevel = lowestLevelMatch;
-            includeNextState = MultiState.JUSTTHIS;
-            if (nextIndependentPath != null) {
-                nextIndependentPath.reset();
-            }
+            sexState = SexState.NEITHER;
+            currentDepth = depth + 1;
+            multiState = MultiState.PATHONLY;
+            extensionPath = null;
+            extensionIterator = null;
         }
 
         /**
          * Get the next Path collection, or return null if at the end of the sequence.
          */
         public Collection<? extends Path> getNextPathSet() {
+            if (maximumPaths == 0) {
+                return null;
+            }
             // If we've hit the end, exit with null
-            if (currentStateLevel == maxDepth) {
+            if (currentDepth == maxDepth) {
                 return null;
             }
             
-            final List<Path> rval = new ArrayList<>();
-
-            // Generate a Path for this state and increment
-            switch (sexState) {
-            case FEMALEONLY:
-                rval.add(new Path(false, true, currentStateLevel, isMale, null));
-                break;
-            case MALEONLY:
-                rval.add(new Path(true, false, currentStateLevel, isMale, null));
-                break;
-            case BOTH:
-                rval.add(new Path(true, true, currentStateLevel, isMale, null));
-                break;
-            default:
-                break;
-            }
-            
-            // The general sequence of "incrementing" the state is as follows:
-            // (1) walk through the set states; if at end, go back to FEMALEONLY and set
-            //     includeNextState
-            // (2) If includeNextState is set, 
-            if (includeNextState == MultiState.THISPLUSNEXT) {
-                if (nextIndependentPath != null) {
-                    final Collection<? extends Path> downstreamPaths = nextIndependentPath.getNextPathSet();
-                    if (downstreamPaths == null) {
-                        includeNextState = null;
-                    } else {
-                        rval.addAll(downstreamPaths);
-                    }
-                } else {
-                    includeNextState = null;
-                }
-            } else {
-                includeNextState = MultiState.THISPLUSNEXT;
-            }
-
-            // Advancement logic: increment the next levels
-
-            // Multilevel state
-            if (includeNextState == null) {
-                // Advance to next sex
+            if (extensionPath == null) {
+                // Generate a Path for this state and increment
                 switch (sexState) {
+                case NEITHER:
+                    // We can't generate this if we are on the highest level
+                    //if (currentDepth < maxDepth - 1) {
+                    extensionPath = new Path(false, false, currentDepth, isPathProfileMale, pathToExtend);
+                    break;
                 case FEMALEONLY:
-                    sexState = SexState.MALEONLY;
+                    // We can't generate this if we're not deep enough
+                    //if (currentDepth >= lowestLevelMatch) {
+                    extensionPath = new Path(false, true, currentDepth, isPathProfileMale, pathToExtend);
                     break;
                 case MALEONLY:
-                    sexState = SexState.BOTH;
+                    // We can't generate this if we're not deep enough
+                    //if (currentDepth >= lowestLevelMatch) {
+                    extensionPath = new Path(true, false, currentDepth, isPathProfileMale, pathToExtend);
                     break;
                 case BOTH:
-                    sexState = null;
+                    // We can't generate this if we're not deep enough
+                    //if (currentDepth >= lowestLevelMatch) {
+                    extensionPath = new Path(true, true, currentDepth, isPathProfileMale, pathToExtend);
                     break;
                 default:
                     break;
                 }
-                includeNextState = MultiState.JUSTTHIS;
             }
 
-            // Sex
-            if (sexState == null) {
-                // Advance to the next depth level
-                sexState = SexState.FEMALEONLY;
-                currentStateLevel++;
+            if (extensionPath != null && extensionIterator == null) {
+                // Depending on the MultiState, create the right iterator
+                switch (multiState) {
+                case PATHONLY:
+                    // No extension; leave extensionIterator null
+                    break;
+                case MALESIDEEXTENSION:
+                    // If the sexState is male (meaning, a male assignment), then leave it as null;
+                    // otherwise we extend the male side
+                    // Note: the commented conditional is in fact enforced by the advancement logic below.
+                    //if (sexState != SexState.MALEONLY) {
+                    extensionIterator = new MatchState(extensionPath,
+                                                       currentDepth + 1,  // One level more in depth
+                                                       lowestLevelMatch,
+                                                       maxDepth,
+                                                       maximumPaths - 1,  // One less assignment to generate
+                                                       true);
+                    break;
+                case FEMALESIDEEXTENSION:
+                    // If the sexState is female (meaning, a female assignment), then leave it null
+                    // Note: the commented conditional is enforced by the advancement logic below.
+                    //if (sexState != SexState.FEMALEONLY) {
+                    extensionIterator = new MatchState(extensionPath,
+                                                       currentDepth + 1,  // One level more in depth
+                                                       lowestLevelMatch,
+                                                       maxDepth,
+                                                       maximumPaths - 1,  // One less assignment to generate
+                                                       false);
+                    break;
+                default:
+                    break;
+                }
             }
 
+            // Now, generate return value!
+            final List<Path> rval = new ArrayList<>();
+            // We do NOT add the extension path if it's not an assignment.
+            if (extensionPath != null && sexState != SexState.NEITHER) {
+                rval.add(extensionPath);
+            }
+            // If we've got an extension iterator, iterate with that
+            if (extensionIterator != null) {
+                final Collection<? extends Path> extensionPaths = extensionIterator.getNextPathSet();
+                if (extensionPaths != null) {
+                    rval.addAll(extensionPaths);
+                } else {
+                    // Advancement step; signal we are done with the iterator we have
+                    extensionIterator = null;
+                }
+            }
+            
+            // Advancement logic: increment the next levels
+
+            if (extensionIterator == null) {
+                // Advance multiState first
+                switch (multiState) {
+                case PATHONLY:
+                    // Don't go into MALESIDEEXTENSION if we're not allowed to do it
+                    if (sexState != SexState.MALEONLY) {
+                        multiState = MultiState.MALESIDEEXTENSION;
+                    } else {
+                        // Advance past MALESIDEEXTENSION.
+                        if (sexState != SexState.FEMALEONLY) {
+                            multiState = MultiState.FEMALESIDEEXTENSION;
+                        } else {
+                            multiState = null;
+                        }
+                    }
+                    break;
+                case MALESIDEEXTENSION:
+                    // Don't go into FEMALESIDEEXTENSION if we're not allowed
+                    if (sexState != SexState.FEMALEONLY) {
+                        multiState = MultiState.FEMALESIDEEXTENSION;
+                    } else {
+                        multiState = null;
+                    }
+                    break;
+                case FEMALESIDEEXTENSION:
+                    // Signal we are done here
+                    multiState = null;
+                    break;
+                default:
+                    break;
+                }
+
+                if (multiState == null) {
+                    // Changing the sex state means we need to recompute the extensionPath
+                    extensionPath = null;
+                    // Advance sex state
+                    switch (sexState) {
+                    case NEITHER:
+                        if (currentDepth >= lowestLevelMatch) {
+                            sexState = SexState.FEMALEONLY;
+                        } else {
+                            sexState = null;
+                        }
+                        break;
+                    case FEMALEONLY:
+                        sexState = SexState.MALEONLY;
+                        break;
+                    case MALEONLY:
+                        sexState = SexState.BOTH;
+                        break;
+                    case BOTH:
+                        sexState = null;
+                    default:
+                        break;
+                    }
+                }
+
+                if (sexState == null) {
+                    // Advance depth
+                    currentDepth++;
+                    if (currentDepth < maxDepth - 1) {
+                        sexState = SexState.NEITHER;
+                    } else {
+                        sexState = SexState.FEMALEONLY;
+                    }
+                }
+                
+            }
+            
             return rval;
         }
     }
 
+
+    
 }
 
