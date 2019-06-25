@@ -63,8 +63,7 @@ public class TreeIterator {
 
     private static enum MultiState {
         PATHONLY,
-        MALESIDEEXTENSION,
-        FEMALESIDEEXTENSION
+        INCLUDEEXTENSION
     };
 
     static class MatchIterator {
@@ -84,7 +83,12 @@ public class TreeIterator {
         }
 
         public Collection<? extends Path> getNextPathSet() {
-            return matchState.getNextPathSet();
+            if (matchState.atEnd()) {
+                return null;
+            }
+            final Collection<? extends Path> rval = matchState.getCurrentPathSet();
+            matchState.advance();
+            return rval;
         }
     }
     
@@ -181,8 +185,20 @@ public class TreeIterator {
         private MultiState multiState;
         /** Depending on the multiState value, we keep an extension path */
         private Path extensionPath;
-        /** Depending on the multiState value, we keep the extension iterator around too */
-        private MatchState extensionIterator;
+
+        // We can have zero, one, or two extension iterators in play.  We iterate through
+        // all of these together.  The conformation of the root Path determines how many
+        // extension iterators there are, and how they are constructed.  Each one provides
+        // a minimum of ONE assignment and a maximum of whatever is passed in.
+        //
+        // The fact that there are two of these active for some nodes means that the number
+        // of combinations of the two, and how they are allocated, must be coordinated.
+        // How this is done needs to be worked out still.
+        
+        /** Male extension iterator, or null */
+        private MatchState maleExtensionIterator;
+        /** Female extension iterator, or null */
+        private MatchState femaleExtensionIterator;
         
         public MatchState(final int lowestLevelMatch,
                           final int maxDepth,
@@ -213,25 +229,42 @@ public class TreeIterator {
          * Reset to the beginning of the sequence.
          */
         public void reset() {
-            sexState = SexState.NEITHER;
             currentDepth = depth + 1;
+            sexState = SexState.NEITHER;
             multiState = MultiState.PATHONLY;
             extensionPath = null;
-            extensionIterator = null;
+            maleExtensionIterator = null;
+            femaleExtensionIterator = null;
         }
 
         /**
-         * Get the next Path collection, or return null if at the end of the sequence.
+         * Check if we are at the end of the sequence.
          */
-        public Collection<? extends Path> getNextPathSet() {
+        public boolean atEnd() {
+            moveToFirst();
             if (maximumPaths == 0) {
-                return null;
+                return true;
             }
             // If we've hit the end, exit with null
             if (currentDepth == maxDepth) {
-                return null;
+                return true;
             }
-            
+            return false;
+        }
+        
+        /**
+         * Get the current Path collection.  An exception will be thrown if we're beyond the end of the sequence.
+         * Use atEnd() to prevent that.
+         */
+        public Collection<? extends Path> getCurrentPathSet() {
+            moveToFirst();
+            return computeResults();
+        }
+
+        /**
+         * Compute the results, without any advancement.  We are guaranteed to be at a legal state.
+         */
+        private Collection<? extends Path> computeResults() {
             if (extensionPath == null) {
                 // Generate a Path for this state and increment
                 switch (sexState) {
@@ -260,129 +293,170 @@ public class TreeIterator {
                 }
             }
 
-            if (extensionPath != null && extensionIterator == null) {
-                // Depending on the MultiState, create the right iterator
-                switch (multiState) {
-                case PATHONLY:
-                    // No extension; leave extensionIterator null
-                    break;
-                case MALESIDEEXTENSION:
-                    // If the sexState is male (meaning, a male assignment), then leave it as null;
-                    // otherwise we extend the male side
-                    // Note: the commented conditional is in fact enforced by the advancement logic below.
-                    //if (sexState != SexState.MALEONLY) {
-                    extensionIterator = new MatchState(extensionPath,
-                                                       currentDepth + 1,  // One level more in depth
-                                                       lowestLevelMatch,
-                                                       maxDepth,
-                                                       maximumPaths - 1,  // One less assignment to generate
-                                                       true);
-                    break;
-                case FEMALESIDEEXTENSION:
-                    // If the sexState is female (meaning, a female assignment), then leave it null
-                    // Note: the commented conditional is enforced by the advancement logic below.
-                    //if (sexState != SexState.FEMALEONLY) {
-                    extensionIterator = new MatchState(extensionPath,
-                                                       currentDepth + 1,  // One level more in depth
-                                                       lowestLevelMatch,
-                                                       maxDepth,
-                                                       maximumPaths - 1,  // One less assignment to generate
-                                                       false);
-                    break;
-                default:
-                    break;
+            if (extensionPath != null && maleExtensionIterator == null && femaleExtensionIterator == null && sexState != SexState.BOTH) {
+                // For the NEITHER case, we can safely assume that the other branch (which must exist!!)
+                // will generate at least one Path, so we deduct one from the maximumPaths value when we construct
+                // its iterator.  That makes it no different from FEMALEONLY and MALEONLY extensions.
+                if (sexState == SexState.FEMALEONLY || sexState == SexState.NEITHER) {
+                    // Create a male-side extension.
+                    maleExtensionIterator = new MatchState(extensionPath,
+                                                           currentDepth + 1,  // One level more in depth
+                                                           lowestLevelMatch,
+                                                           maxDepth,
+                                                           maximumPaths - 1,  // One less assignment to generate
+                                                           true);
+                }
+                if (sexState == SexState.MALEONLY || sexState == SexState.NEITHER) {
+                    // Create a female-side extension
+                    femaleExtensionIterator = new MatchState(extensionPath,
+                                                             currentDepth + 1,  // One level more in depth
+                                                             lowestLevelMatch,
+                                                             maxDepth,
+                                                             maximumPaths - 1,  // One less assignment to generate
+                                                             false);
                 }
             }
 
+            // The multiState state only applies if the SexState is FEMALEONLY or MALEONLY.  In that case
+            // we have the choice of generating just the Path described, OR the Path plus whatever the extension
+            // generates.  For the NEITHER case we always generate both sides (makes no sense otherwise), and for
+            // the BOTH case we always generate just the Path, nothing else.
+            
             // Now, generate return value!
+
+            // Every MatchIterator generates at least ONE assignment.
+            
             final List<Path> rval = new ArrayList<>();
-            // We do NOT add the extension path if it's not an assignment.
+
+            // Always add the path we created, if we have it, and if we are allowed.
             if (extensionPath != null && sexState != SexState.NEITHER) {
                 rval.add(extensionPath);
             }
-            // If we've got an extension iterator, iterate with that
-            if (extensionIterator != null) {
-                final Collection<? extends Path> extensionPaths = extensionIterator.getNextPathSet();
-                if (extensionPaths != null) {
-                    rval.addAll(extensionPaths);
-                } else {
-                    // Advancement step; signal we are done with the iterator we have
-                    extensionIterator = null;
-                }
+
+            // If the sexState is FEMALEONLY or MALEONLY, we check the multiState to decide whether to generate any downstream Paths.
+            if (sexState == SexState.BOTH ||
+                ((sexState == SexState.FEMALEONLY || sexState == SexState.MALEONLY) && multiState == MultiState.PATHONLY)) {
+                // We're done, so return.
+                return rval;
             }
-            
+
+            // Apply the iterators
+            if (maleExtensionIterator != null) {
+                final Collection<? extends Path> paths = maleExtensionIterator.getCurrentPathSet();
+                rval.addAll(paths);
+            }
+            if (femaleExtensionIterator != null) {
+                final Collection<? extends Path> paths = femaleExtensionIterator.getCurrentPathSet();
+                rval.addAll(paths);
+            }
+            return rval;
+        }
+
+        /**
+         * Advance to the next state.
+         */
+        public void advance() {
             // Advancement logic: increment the next levels
 
-            if (extensionIterator == null) {
-                // Advance multiState first
-                switch (multiState) {
-                case PATHONLY:
-                    // Don't go into MALESIDEEXTENSION if we're not allowed to do it
-                    if (sexState != SexState.MALEONLY) {
-                        multiState = MultiState.MALESIDEEXTENSION;
-                    } else {
-                        // Advance past MALESIDEEXTENSION.
-                        if (sexState != SexState.FEMALEONLY) {
-                            multiState = MultiState.FEMALESIDEEXTENSION;
-                        } else {
-                            multiState = null;
-                        }
-                    }
-                    break;
-                case MALESIDEEXTENSION:
-                    // Don't go into FEMALESIDEEXTENSION if we're not allowed
-                    if (sexState != SexState.FEMALEONLY) {
-                        multiState = MultiState.FEMALESIDEEXTENSION;
-                    } else {
-                        multiState = null;
-                    }
-                    break;
-                case FEMALESIDEEXTENSION:
-                    // Signal we are done here
+            // First priority: increment the extension iterators.
+            if (maleExtensionIterator != null) {
+                maleExtensionIterator.advance();
+                if (maleExtensionIterator.atEnd()) {
+                    maleExtensionIterator = null;
+                } else {
+                    return;
+                }
+            }
+            if (femaleExtensionIterator != null) {
+                femaleExtensionIterator.advance();
+                if (femaleExtensionIterator.atEnd()) {
+                    femaleExtensionIterator = null;
+                } else {
+                    return;
+                }
+            }
+
+            // Next, do the multiState
+            if (sexState == SexState.FEMALEONLY || sexState == SexState.MALEONLY) {
+                if (multiState == MultiState.PATHONLY) {
+                    multiState = MultiState.INCLUDEEXTENSION;
+                    return;
+                } else {
                     multiState = null;
+                }
+            }
+
+            // Now, the sexState
+            if (multiState == null) {
+                multiState = MultiState.PATHONLY;
+                switch (sexState) {
+                case NEITHER:
+                    sexState = SexState.FEMALEONLY;
+                    break;
+                case FEMALEONLY:
+                    sexState = SexState.MALEONLY;
+                    break;
+                case MALEONLY:
+                    sexState = SexState.BOTH;
+                    break;
+                case BOTH:
+                    sexState = null;
                     break;
                 default:
                     break;
                 }
-
-                if (multiState == null) {
-                    // Changing the sex state means we need to recompute the extensionPath
-                    extensionPath = null;
-                    // Advance sex state
-                    switch (sexState) {
-                    case NEITHER:
-                        if (currentDepth >= lowestLevelMatch) {
-                            sexState = SexState.FEMALEONLY;
-                        } else {
-                            sexState = null;
-                        }
-                        break;
-                    case FEMALEONLY:
-                        sexState = SexState.MALEONLY;
-                        break;
-                    case MALEONLY:
-                        sexState = SexState.BOTH;
-                        break;
-                    case BOTH:
-                        sexState = null;
-                    default:
-                        break;
-                    }
-                }
-
-                if (sexState == null) {
-                    // Advance depth
-                    currentDepth++;
-                    if (currentDepth < maxDepth - 1) {
-                        sexState = SexState.NEITHER;
-                    } else {
-                        sexState = SexState.FEMALEONLY;
-                    }
-                }
-                
             }
             
-            return rval;
+            // Now, the depth
+            if (sexState == null) {
+                sexState = SexState.NEITHER;
+                currentDepth++;
+            }
+        }
+        
+        /**
+         * Given the current state, move to the first legal state at or after this one.
+         */
+        private void moveToFirst() {
+            while (true) {
+                // Basically, this method checks for illegal conditions, and if it finds them,
+                // it modifies the current state to move past these, until it finds a legal state.
+                
+                if (currentDepth >= maxDepth) {
+                    break;
+                }
+                if (currentDepth < lowestLevelMatch && sexState != SexState.NEITHER) {
+                    currentDepth++;
+                    sexState = SexState.NEITHER;
+                    extensionPath = null;
+                    maleExtensionIterator = null;
+                    femaleExtensionIterator = null;
+                    continue;
+                }
+                if (currentDepth >= maxDepth - 1 && sexState == SexState.NEITHER) {
+                    sexState = SexState.FEMALEONLY;
+                    multiState = MultiState.PATHONLY;
+                    extensionPath = null;
+                    maleExtensionIterator = null;
+                    femaleExtensionIterator = null;
+                    continue;
+                }
+                if (maximumPaths < 2 && sexState == SexState.NEITHER) {
+                    sexState = SexState.FEMALEONLY;
+                    multiState = MultiState.PATHONLY;
+                    extensionPath = null;
+                    maleExtensionIterator = null;
+                    femaleExtensionIterator = null;
+                    continue;
+                }
+                // Compute results for the current state, and skip if they exceed the maximum
+                final Collection<? extends Path> results = computeResults();
+                if (results.size() > maximumPaths) {
+                    advance();
+                    continue;
+                }
+                break;
+            }
         }
     }
 
