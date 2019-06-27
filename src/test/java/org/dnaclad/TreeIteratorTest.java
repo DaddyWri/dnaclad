@@ -2,6 +2,7 @@ package org.dnaclad;
 
 import java.util.Collection;
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
 
 public class TreeIteratorTest {
 
@@ -13,13 +14,14 @@ public class TreeIteratorTest {
                                                                                true);
         int matchStateCounter = 0;
         while (!matchState.atEnd()) {
-            System.out.println("Have a result");
+            //System.out.println("Have a result");
             matchStateCounter++;
             final Collection<? extends Path> results = matchState.getCurrentPathSet();
-            System.out.println("Successfully fetched result");
+            //System.out.println("Successfully fetched result");
             matchState.advance();
         }
 
-        System.out.println("Total unique combinations: "+matchStateCounter);
+        assertEquals(188, matchStateCounter);
+        //System.out.println("Total unique combinations: "+matchStateCounter);
     }
 }

@@ -279,7 +279,7 @@ public class TreeIterator {
          * Compute the results, without any advancement.  We are guaranteed to be at a legal state.
          */
         private void computeResults() {
-            System.out.println("in computeResults for "+System.identityHashCode(this));
+            //System.out.println("in computeResults for "+System.identityHashCode(this));
             if (currentResults != null) {
                 return;
             }
@@ -325,7 +325,7 @@ public class TreeIterator {
                                                            maximumPaths - 1,  // One less assignment to generate
                                                            true);
                     if (maleExtensionIterator.atEnd()) {
-                        System.out.println("Depth we created: "+(currentDepth+1));
+                        //System.out.println("Depth we created: "+(currentDepth+1));
                         throw new IllegalStateException("Created a male extension iterator that has no states; should not happen: state="+this);
                     }
                 }
@@ -363,16 +363,10 @@ public class TreeIterator {
 
             // Apply the iterators
             if (maleExtensionIterator != null) {
-                if (maleExtensionIterator.atEnd()) {
-                    throw new IllegalStateException("Male extension iterator for "+System.identityHashCode(this)+" is at its end but wasn't detected earlier");
-                }
                 final Collection<? extends Path> paths = maleExtensionIterator.getCurrentPathSet();
                 rval.addAll(paths);
             }
             if (femaleExtensionIterator != null) {
-                if (femaleExtensionIterator.atEnd()) {
-                    throw new IllegalStateException("Female extension iterator for "+System.identityHashCode(this)+" is at its end but wasn't detected earlier");
-                }
                 final Collection<? extends Path> paths = femaleExtensionIterator.getCurrentPathSet();
                 rval.addAll(paths);
             }
@@ -394,7 +388,7 @@ public class TreeIterator {
         }
 
         private void simpleAdvance() {
-            System.out.println("in simpleAdvance() for "+System.identityHashCode(this)+":"+this.toString());
+            //System.out.println("in simpleAdvance() for "+System.identityHashCode(this)+":"+this.toString());
             // Advancement logic: increment the next levels
             currentResults = null;
             
@@ -405,7 +399,7 @@ public class TreeIterator {
                 if (maleExtensionIterator.atEnd()) {
                     maleExtensionIterator = null;
                 } else {
-                    System.out.println(" ...advanced maleExtensionIterator for "+System.identityHashCode(this));
+                    //System.out.println(" ...advanced maleExtensionIterator for "+System.identityHashCode(this));
                     return;
                 }
             }
@@ -414,7 +408,7 @@ public class TreeIterator {
                 if (femaleExtensionIterator.atEnd()) {
                     femaleExtensionIterator = null;
                 } else {
-                    System.out.println(" ...advanced femaleExtensionIterator for "+System.identityHashCode(this));
+                    //System.out.println(" ...advanced femaleExtensionIterator for "+System.identityHashCode(this));
                     return;
                 }
             }
@@ -428,7 +422,7 @@ public class TreeIterator {
             switch (multiState) {
             case PATHONLY:
                 multiState = MultiState.INCLUDEEXTENSION;
-                System.out.println(" ...advanced multiState to INCLUDEEXTENSION");
+                //System.out.println(" ...advanced multiState to INCLUDEEXTENSION");
                 return;
             case INCLUDEEXTENSION:
                 multiState = null;
@@ -444,15 +438,15 @@ public class TreeIterator {
                 switch (sexState) {
                 case NEITHER:
                     sexState = SexState.FEMALEONLY;
-                    System.out.println(" ...advanced to FEMALEONLY for "+System.identityHashCode(this));
+                    //System.out.println(" ...advanced to FEMALEONLY for "+System.identityHashCode(this));
                     return;
                 case FEMALEONLY:
                     sexState = SexState.MALEONLY;
-                    System.out.println(" ...advanced to MALEONLY for "+System.identityHashCode(this));
+                    //System.out.println(" ...advanced to MALEONLY for "+System.identityHashCode(this));
                     return;
                 case MALEONLY:
                     sexState = SexState.BOTH;
-                    System.out.println(" ...advanced to BOTH for "+System.identityHashCode(this));
+                    //System.out.println(" ...advanced to BOTH for "+System.identityHashCode(this));
                     return;
                 case BOTH:
                     sexState = null;
@@ -466,7 +460,7 @@ public class TreeIterator {
             if (sexState == null) {
                 sexState = SexState.NEITHER;
                 currentDepth++;
-                System.out.println(" ...advanced to currentDepth "+currentDepth+" for "+System.identityHashCode(this));
+                //System.out.println(" ...advanced to currentDepth "+currentDepth+" for "+System.identityHashCode(this));
                 return;
             }
             
@@ -481,7 +475,7 @@ public class TreeIterator {
             // (1) multiState
             // (2) sexState
             // (3) depth
-            System.out.println("in moveToFirst for "+System.identityHashCode(this)+" currentDepth="+currentDepth);
+            //System.out.println("in moveToFirst for "+System.identityHashCode(this)+" currentDepth="+currentDepth);
             while (true) {
                 // Basically, this method checks for illegal conditions, and if it finds them,
                 // it modifies the current state to move past these, until it finds a legal state.
@@ -490,7 +484,7 @@ public class TreeIterator {
                     break;
                 }
                 if (maximumPaths == 1 && sexState != SexState.BOTH && multiState == MultiState.INCLUDEEXTENSION) {
-                    System.out.println(" ...case1");
+                    //System.out.println(" ...case1");
                     // We cannot include extensions when we've already allocated all the paths
                     multiState = MultiState.PATHONLY;
                     sexState = SexState.BOTH;
@@ -500,7 +494,7 @@ public class TreeIterator {
                     continue;
                 }
                 if (currentDepth < lowestLevelMatch && sexState != SexState.NEITHER) {
-                    System.out.println(" ...case2");
+                    //System.out.println(" ...case2");
                     // If we're below lowest level where we can generate a match, and yet we are
                     // generating a match, go to the next level
                     currentDepth++;
@@ -512,7 +506,7 @@ public class TreeIterator {
                     continue;
                 }
                 if (currentDepth == maxDepth && sexState == SexState.NEITHER) {
-                    System.out.println(" ...case3");
+                    //System.out.println(" ...case3");
                     // If we're on the last row, we cannot be in a state where extensions are
                     // required.
                     sexState = SexState.FEMALEONLY;
@@ -523,7 +517,7 @@ public class TreeIterator {
                     continue;
                 }
                 if (sexState != SexState.BOTH && multiState == MultiState.INCLUDEEXTENSION && currentDepth == maxDepth) {
-                    System.out.println(" ...case4");
+                    //System.out.println(" ...case4");
                     // If we're on the last row, and yet we're being told to include the extension, skip to where no extension
                     // is used.  Only the BOTH state makes sense there.
                     sexState = SexState.BOTH;
@@ -534,7 +528,7 @@ public class TreeIterator {
                     continue;
                 }
                 if (maximumPaths < 2 && sexState == SexState.NEITHER) {
-                    System.out.println(" ...case5");
+                    //System.out.println(" ...case5");
                     // If we're in the NEITHER sexState, and we have fewer than 2 maximum paths, we advance because
                     // we are otherwise unable to actually generate a tree.
                     sexState = SexState.FEMALEONLY;
@@ -545,13 +539,13 @@ public class TreeIterator {
                     continue;
                 }
                 if (multiState == MultiState.PATHONLY && sexState == SexState.NEITHER) {
-                    System.out.println(" ...case6");
+                    //System.out.println(" ...case6");
                     // NEITHER doesn't generate anything so it never gets along with PATHONLY
                     multiState = MultiState.INCLUDEEXTENSION;
                     continue;
                 }
                 if (multiState == MultiState.INCLUDEEXTENSION && sexState == SexState.BOTH) {
-                    System.out.println(" ...case7");
+                    //System.out.println(" ...case7");
                     // INCLUDEEXTENSION requires something to extend, and BOTH prohibits that
                     sexState = SexState.NEITHER;
                     multiState = MultiState.INCLUDEEXTENSION;
@@ -565,7 +559,7 @@ public class TreeIterator {
                 // If everything else is OK, compute results for the current state, and skip if they exceed the maximum
                 computeResults();
                 if (currentResults.size() > maximumPaths) {
-                    System.out.println(" ....case8");
+                    //System.out.println(" ....case8");
                     simpleAdvance();
                     continue;
                 }
@@ -573,7 +567,7 @@ public class TreeIterator {
                 // Everything is legal so terminate
                 break;
             }
-            System.out.println("... done with moveToFirst for "+System.identityHashCode(this)+": "+this);
+            //System.out.println("... done with moveToFirst for "+System.identityHashCode(this)+": "+this);
         }
 
         @Override
