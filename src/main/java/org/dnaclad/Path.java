@@ -11,6 +11,8 @@ package org.dnaclad;
  * always the unincluded parent(s) that is/are extended in that case.
  */
 public class Path {
+    /** Match profile */
+    public final MatchProfile matchProfile;
     /** Number of intervening generations */
     public final int interveningGens;
     /** True if includes male parent */
@@ -22,11 +24,13 @@ public class Path {
     /** Either another path, or null meaning the root of the profile */
     public final Path derivedFrom;
 
-    public Path(final boolean includesMale,
+    public Path(final MatchProfile matchProfile,
+                final boolean includesMale,
                 final boolean includesFemale,
                 final int interveningGens,
                 final boolean isMaleChild,
                 final Path derivedFrom) {
+        this.matchProfile = matchProfile;
         this.interveningGens = interveningGens;
         this.includesMale = includesMale;
         this.includesFemale = includesFemale;
@@ -36,7 +40,7 @@ public class Path {
 
     @Override
     public int hashCode() {
-        return (includesMale?19:0) + (includesFemale?31:0) + Integer.hashCode(interveningGens) + (isMaleChild?47:0) + ((derivedFrom != null)?derivedFrom.hashCode():0);
+        return matchProfile.hashCode() + (includesMale?19:0) + (includesFemale?31:0) + Integer.hashCode(interveningGens) + (isMaleChild?47:0) + ((derivedFrom != null)?derivedFrom.hashCode():0);
     }
 
     @Override
@@ -45,7 +49,8 @@ public class Path {
             return false;
         }
         final Path other = (Path)o;
-        return includesMale == other.includesMale &&
+        return matchProfile.equals(other.matchProfile) &&
+            includesMale == other.includesMale &&
             includesFemale == other.includesFemale &&
             interveningGens == other.interveningGens &&
             isMaleChild == other.isMaleChild &&
@@ -54,6 +59,6 @@ public class Path {
     
     @Override
     public String toString() {
-        return (includesMale?"M":"") + (includesFemale?"F":"") + interveningGens + (isMaleChild?"M":"F") + ((derivedFrom != null)?":"+derivedFrom:"");
+        return matchProfile.toString() + ":" + (includesMale?"M":"") + (includesFemale?"F":"") + interveningGens + (isMaleChild?"M":"F") + ((derivedFrom != null)?":"+derivedFrom:"");
     }
 }

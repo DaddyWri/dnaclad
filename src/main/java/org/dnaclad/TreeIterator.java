@@ -3,6 +3,10 @@ package org.dnaclad;
 import java.util.Collection;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Set;
+import java.util.HashSet;
 
 /**
  * This class iterates over all possible trees given a list of match profiles.
@@ -27,18 +31,18 @@ import java.util.ArrayList;
 
 public class TreeIterator {
 
-    final List<MatchIterator> matchIterators;
+    final Map<MatchProfile, MatchState> matchIterators;
+    final List<MatchState> matchStates;
     
     public TreeIterator(final Collection<? extends MatchProfile> matches,
                         final int maxDepth,
                         final int maxAssignmentsPerMatch) {
-        matchIterators = new ArrayList<>(matches.size());
+        matchIterators = new HashMap<>(matches.size());
+        matchStates = new ArrayList<>(matches.size());
         for (final MatchProfile mp : matches) {
-            matchIterators.add(new MatchIterator(mp, maxDepth, maxAssignmentsPerMatch));
-        }
-        // Reset all
-        for (final MatchIterator mi : matchIterators) {
-            mi.reset();
+            final MatchState ms = new MatchState(mp, mp.minimumMatchDepth, maxDepth, maxAssignmentsPerMatch, mp.isMale);
+            matchIterators.put(mp, ms);
+            matchStates.add(ms);
         }
     }
 
@@ -46,10 +50,88 @@ public class TreeIterator {
      * Retrieve next ReducedTree, or null if there are no more.
      */
     public ReducedTree generateNext() {
+
+        if (matchStatesAtEnd()) {
+            return null;
+        }
+
         // MHL
-        return null;
+        ReducedTree rt = null;
+        // MHL
+        
+        advanceMatchStates();
+
+        return rt;
     }
 
+    // Combinatorially create assignments given all the matchstates we have
+    //
+    // The basic idea here is to take all of the MatchStates and put together
+    // a new set of Assignments.  But this has to be done in a way that allows
+    // us to traverse all possibilities.
+    //
+    // Between any individual MatchState and the main profile, we have a list
+    // of Path objects representing Assignments we want to have.  But several
+    // Paths may all depend on the same root Path, which represents the lowest-
+    // level node in common between them.  Our assignment building starts with
+    // these nodes.  They are combinatorially paired with individual hierarchy
+    // levels in the main profile, based on age ranges.  The pairings can work
+    // as follows:
+    //
+    // (1) The pairing has no relationship with any other pairing on the same
+    //     level so far made.  In this case there may still be a relationship
+    //     between the pairing and another pairing, in that they both share a
+    //     common node that is closer to the root of the main profile; all such
+    //     possibilities must be considered.
+    // (2) The pairing is exactly the same as another pairing we already have.
+    //     in this case, we have to combinatorially permute all the different
+    //     ways the downstream Path sections can be combined: independent, the
+    //     same, or the same via some node in-between.
+    // (3) Each level of the main profile has a specific limit for the number
+    //     of nodes of specific kinds that it can accept, which means that
+    //     independent assignment is not always possible given the history
+    //     and given the field of assignments already made.
+    //
+    // The problem is that any order-dependent way of layering on MatchStates
+    // to produce Assignments implies that we have to permute the ordering we do
+    // this, as well.  That potentially produces duplicates and a lot of wasted
+    // effort.  But turning the problem around has potential.  Instead of
+    // looking to layer in MatchStates, we instead combinatorially attempt to
+    // build partial trees, one level at a time, EXACTLY the way we built the
+    // MatchStates themselves.  Whenever a choice is possible for a Path extension
+    // we select from among the available MatchState Paths combinatorially to
+    // use as matches.  (Once again, we need the root Paths to give us this set.)
+    // In this way we can combinatorially select root Path assignments without
+    // violating any tree constraints.  But we still have exactly the same
+    // combinatoric generation problem for all Paths emanating from a common
+    // node, so the algorithm would need to be recursive in much the same way
+    // that the MatchState algorithm is recursive.
+    //
+    // The data structures we need for this include at least the following:
+    // (a) An ordered set of root Paths, which we compute from the overall
+    //     list of MatchStates;
+    // (b) For each root Path, a set of extension Paths that go through it.
+
+    
+    private boolean matchStatesAtEnd() {
+        return matchStates.get(matchStates.size()-1).atEnd();
+    }
+
+    private void advanceMatchStates() {
+        int index = 0;
+        while (true) {
+            if (index == matchStates.size()) {
+                break;
+            }
+            matchStates.get(index).advance();
+            if (!matchStates.get(index).atEnd()) {
+                return;
+            }
+            matchStates.get(index).reset();
+            index++;
+        }
+    }
+    
     /**
      * Some paths are only used in the context of extension, so they
      * are built and extended but not added to the final set.
@@ -66,32 +148,6 @@ public class TreeIterator {
         INCLUDEEXTENSION
     };
 
-    static class MatchIterator {
-
-        private final MatchProfile matchProfile;
-        private final MatchState matchState;
-        
-        public MatchIterator(final MatchProfile mp,
-                             final int maxDepth,
-                             final int maxAssignmentsPerMatch) {
-            this.matchProfile = mp;
-            this.matchState = new MatchState(mp.minimumMatchDepth, maxDepth, maxAssignmentsPerMatch, mp.isMale);
-        }
-
-        public void reset() {
-            matchState.reset();
-        }
-
-        public Collection<? extends Path> getNextPathSet() {
-            if (matchState.atEnd()) {
-                return null;
-            }
-            final Collection<? extends Path> rval = matchState.getCurrentPathSet();
-            matchState.advance();
-            return rval;
-        }
-    }
-    
     /**
      * This private class represents the state of a single match.  Basically,
      * it produces a collection of Path objects for a single MatchProfile.
@@ -145,6 +201,8 @@ public class TreeIterator {
         
         // Iterator characteristics
 
+        /** Match profile */
+        private final MatchProfile matchProfile;
         /** Path to extend (or null if root profile) */
         private final Path pathToExtend;
         /** Starting depth; assume an articulation node here */
@@ -203,14 +261,16 @@ public class TreeIterator {
         // We cache the current results too
         private Collection<? extends Path> currentResults;
         
-        public MatchState(final int lowestLevelMatch,
+        public MatchState(final MatchProfile matchProfile,
+                          final int lowestLevelMatch,
                           final int maxDepth,
                           final int maximumPaths,
                           final boolean rootProfileIsMale) {
-            this(null, 1, lowestLevelMatch, maxDepth, maximumPaths, rootProfileIsMale);
+            this(matchProfile, null, 1, lowestLevelMatch, maxDepth, maximumPaths, rootProfileIsMale);
         }
         
-        public MatchState(final Path pathToExtend,
+        public MatchState(final MatchProfile matchProfile,
+                          final Path pathToExtend,
                           final int depth,
                           final int lowestLevelMatch,
                           final int maxDepth,
@@ -228,6 +288,7 @@ public class TreeIterator {
             if (maximumPaths < 1) {
                 throw new IllegalArgumentException("Asking for no more than zero paths");
             }
+            this.matchProfile = matchProfile;
             this.pathToExtend = pathToExtend;
             this.depth = depth;
             this.lowestLevelMatch = lowestLevelMatch;
@@ -292,16 +353,16 @@ public class TreeIterator {
                 // of intervening generations as 2 - (1+1) = 0.
                 switch (sexState) {
                 case NEITHER:
-                    extensionPath = new Path(false, false, currentDepth - (depth+1), isPathProfileMale, pathToExtend);
+                    extensionPath = new Path(matchProfile, false, false, currentDepth - (depth+1), isPathProfileMale, pathToExtend);
                     break;
                 case FEMALEONLY:
-                    extensionPath = new Path(false, true, currentDepth - (depth+1), isPathProfileMale, pathToExtend);
+                    extensionPath = new Path(matchProfile, false, true, currentDepth - (depth+1), isPathProfileMale, pathToExtend);
                     break;
                 case MALEONLY:
-                    extensionPath = new Path(true, false, currentDepth - (depth+1), isPathProfileMale, pathToExtend);
+                    extensionPath = new Path(matchProfile, true, false, currentDepth - (depth+1), isPathProfileMale, pathToExtend);
                     break;
                 case BOTH:
-                    extensionPath = new Path(true, true, currentDepth - (depth+1), isPathProfileMale, pathToExtend);
+                    extensionPath = new Path(matchProfile, true, true, currentDepth - (depth+1), isPathProfileMale, pathToExtend);
                     break;
                 default:
                     break;
@@ -318,7 +379,8 @@ public class TreeIterator {
                 
                 if (sexState == SexState.FEMALEONLY || sexState == SexState.NEITHER) {
                     // Create a male-side extension.
-                    maleExtensionIterator = new MatchState(extensionPath,
+                    maleExtensionIterator = new MatchState(matchProfile,
+                                                           extensionPath,
                                                            currentDepth + 1,  // One level more in depth
                                                            lowestLevelMatch,
                                                            maxDepth,
@@ -331,7 +393,8 @@ public class TreeIterator {
                 }
                 if (sexState == SexState.MALEONLY || sexState == SexState.NEITHER) {
                     // Create a female-side extension
-                    femaleExtensionIterator = new MatchState(extensionPath,
+                    femaleExtensionIterator = new MatchState(matchProfile,
+                                                             extensionPath,
                                                              currentDepth + 1,  // One level more in depth
                                                              lowestLevelMatch,
                                                              maxDepth,
@@ -584,7 +647,44 @@ public class TreeIterator {
         
     }
 
+    static class MatchNodes {
+        /** The set of Paths for the null Path */
+        private final Set<Path> nullPathExtensions = new HashSet<>();
+        /** The set of extensions for any given Path */
+        private final Map<Path, Set<Path>> pathExtensions = new HashMap<>();
 
+        public MatchNodes() {
+        }
+
+        public void addPaths(final Collection<? extends Path> assignmentPaths) {
+            for (final Path assignment : assignmentPaths) {
+                addPath(assignment);
+            }
+        }
+
+        public void addPath(final Path assignment) {
+            if (assignment.derivedFrom == null) {
+                nullPathExtensions.add(assignment);
+            } else {
+                Set<Path> extensions = pathExtensions.get(assignment.derivedFrom);
+                if (extensions == null) {
+                    extensions = new HashSet<>();
+                    pathExtensions.put(assignment.derivedFrom, extensions);
+                }
+                extensions.add(assignment);
+                addPath(assignment.derivedFrom);
+            }
+        }
+
+        public Collection<? extends Path> getPotentialAssignments(final Path rootPath) {
+            if (rootPath == null) {
+                return nullPathExtensions;
+            } else {
+                return pathExtensions.get(rootPath);
+            }
+        }
+        
+    }
     
 }
 

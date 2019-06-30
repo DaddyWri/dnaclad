@@ -8,7 +8,8 @@ public class TreeIteratorTest {
 
     @Test
     public void testMatchState() {
-        TreeIterator.MatchState matchState = new TreeIterator.MatchState(3,
+        TreeIterator.MatchState matchState = new TreeIterator.MatchState(null,
+                                                                         3,
                                                                          10,
                                                                          2,
                                                                          true);
@@ -25,7 +26,8 @@ public class TreeIteratorTest {
         //System.out.println("Total unique combinations: "+matchStateCounter);
 
         matchStateCounter = 0;
-        matchState = new TreeIterator.MatchState(5,
+        matchState = new TreeIterator.MatchState(null,
+                                                 5,
                                                  9,
                                                  1,
                                                  true);
