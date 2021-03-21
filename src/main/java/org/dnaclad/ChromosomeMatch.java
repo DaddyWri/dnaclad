@@ -1,6 +1,6 @@
 package org.dnaclad;
 
-public class ChromosomeMatch {
+public class ChromosomeMatch implements Comparable<ChromosomeMatch> {
     public final String chromosomeNumber;
     public final int start;
     public final int end;
@@ -18,4 +18,18 @@ public class ChromosomeMatch {
         this.centimorgans = centimorgans;
         this.SNPs = SNPs;
     }
+    
+    @Override
+    public int compareTo(final ChromosomeMatch other) {
+        final int size = end-start;
+        final int otherSize = other.end-other.start;
+        if (size > otherSize) {
+            return -1;
+        }
+        if (size < otherSize) {
+            return 1;
+        }
+        return 0;
+    }
+    
 }
