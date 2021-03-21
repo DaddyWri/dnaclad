@@ -86,6 +86,36 @@ public class Run {
         // chromosome_#, group_id, group_start, group_end, group_description, match_start, match_end, match_user 
         // Order: generally from left to right for every chromosome, EXCEPT that nested groups go smaller to larger, and the smaller groups precede the bigger ones
         // that contain them.  Obviously, matches are repeated because they can be part of multiple hierarchical groups.
+        
+        final Grouper grouper = new Grouper(5);
+        for (final String matchID : matchesData.getMatchIDs()) {
+            final Collection<ChromosomeMatch> matches = matchesData.getMatches(matchID);
+            for (final ChromosomeMatch cm : matches) {
+                grouper.addMatch(cm);
+            }
+        }
+
+        // Create an output engine
+        final OutputEngine engine = new OutputEngine();
+        grouper.writeOutGroups(engine);
+        engine.finishUp();
+        
+    }
+    
+    public static class OutputEngine implements Grouper.GroupWriter {
+        int groupCount = 0;
+        
+        public OutputEngine() {
+        }
+        
+        @Override
+        public void write(String chromosomeID, int startCM, int endCM, List<ChromosomeMatch> matches) {
+            groupCount++;
+        }
+        
+        public void finishUp() {
+            System.out.println("Total number of groups = "+groupCount);
+        }
     }
 }
 

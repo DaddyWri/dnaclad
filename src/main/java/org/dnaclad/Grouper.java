@@ -63,6 +63,9 @@ public class Grouper {
         // Output organized by length.  Later we can rearrange this.
         while (true) {
             Group longest = groups.poll();
+            if (longest == null) {
+                break;
+            }
             // Build a list of chromosome matches
             out.write(longest.chromosomeID, longest.startCM, longest.endCM, longest.getMatchesInGroup());
             // Decompose the group.  Internally this is a recursive call so we need to only do it once here.
