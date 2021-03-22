@@ -96,25 +96,100 @@ public class Run {
         }
 
         // Create an output engine
-        final OutputEngine engine = new OutputEngine();
+        final OutputEngine engine = new OutputEngine(groupsData);
         grouper.writeOutGroups(engine);
         engine.finishUp();
         
     }
     
+    private final static Map<String, Integer> maxChromosomeLength = new HashMap<>();
+    static {
+        maxChromosomeLength.put("11", 134439273);
+        maxChromosomeLength.put("22", 45772802);
+        maxChromosomeLength.put("12", 131409319);
+        maxChromosomeLength.put("13", 114121631);
+        maxChromosomeLength.put("14", 106358708);
+        maxChromosomeLength.put("15", 98412322);
+        maxChromosomeLength.put("16", 88690776);
+        maxChromosomeLength.put("17", 78639702);
+        maxChromosomeLength.put("18", 76116152);
+        maxChromosomeLength.put("19", 63788972);
+        maxChromosomeLength.put("1", 247093448);
+        maxChromosomeLength.put("2", 238534623);
+        maxChromosomeLength.put("3", 197952000);
+        maxChromosomeLength.put("4", 191152644);
+        maxChromosomeLength.put("5", 180372094);
+        maxChromosomeLength.put("6", 167097412);
+        maxChromosomeLength.put("7", 153879201);
+        maxChromosomeLength.put("8", 146264218);
+        maxChromosomeLength.put(" X", 154570039);
+        maxChromosomeLength.put("9", 140186312);
+        maxChromosomeLength.put("20", 62382907);
+        maxChromosomeLength.put("10", 135327873);
+        maxChromosomeLength.put("21", 46897738);
+    }
+    
+    private final static char unoccupied = '\u2591';
+    private final static char occupied = '\u2593';
+
+    private static String formatChromosome(int maxCM, int startCM, int endCM, int totalCharacters) {
+        // Calculate the start and end, in characters
+        int startChar = (int)((((double)startCM) / ((double)maxCM)) * (double)totalCharacters);
+        int endChar = (int)((((double)endCM) / ((double)maxCM)) * (double)totalCharacters);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < startChar; i++) {
+            sb.append(unoccupied);
+        }
+        for (int i = 0; i < endChar-startChar; i++) {
+            sb.append(occupied);
+        }
+        for (int i = 0; i < totalCharacters-endChar; i++) {
+            sb.append(unoccupied);
+        }
+        return sb.toString();
+    }
+    
     public static class OutputEngine implements Grouper.GroupWriter {
         int groupCount = 0;
+        final Map<String, Integer> chromosomeLength = new HashMap<>();
+        final GroupsData groupsData;
         
-        public OutputEngine() {
+        public OutputEngine(GroupsData groupsData) {
+            this.groupsData = groupsData;
         }
         
         @Override
         public void write(String chromosomeID, int startCM, int endCM, List<ChromosomeMatch> matches) {
+            Integer max = chromosomeLength.get(chromosomeID);
+            if (max == null || max < endCM) {
+                chromosomeLength.put(chromosomeID, new Integer(endCM));
+            }
             groupCount++;
+            StringBuilder sb = new StringBuilder();
+            sb.append(chromosomeID).append(": ").append(formatChromosome(maxChromosomeLength.get(chromosomeID), startCM, endCM, 120));
+            System.out.println(sb.toString());
+            System.out.println("Group start = "+startCM+"; Group end = " + endCM + "; " + groupsData.findGroupDescription(chromosomeID, startCM, endCM));
+            int i = 0;
+            for (ChromosomeMatch cm : matches) {
+                if (i >=10) {
+                    System.out.println("...");
+                    break;
+                }
+                System.out.println(cm.matchID);
+                i++;
+            }
         }
         
         public void finishUp() {
+            System.out.println("\n");
             System.out.println("Total number of groups = "+groupCount);
+            System.out.println("\n");
+            for (String chrID : chromosomeLength.keySet()) {
+                System.out.println("Max endCM for chromosome '"+
+                    chrID+
+                    "' is "+
+                    chromosomeLength.get(chrID).toString());
+            }
         }
     }
 }

@@ -24,6 +24,15 @@ public class GroupsData {
         readGroupsFile(file);
     }
     
+    public String findGroupDescription(final String chromosomeID, final int startCM, final int endCM) {
+        final GroupKey gk = new GroupKey(chromosomeID, startCM, endCM);
+        GroupDescription gd = startInfo.get(gk);
+        if (gd == null) {
+            return "unknown";
+        }
+        return gd.groupID + ": " + gd.groupDescription;
+    }
+    
     private void processGroupsLine(final String line) throws Exception {
         final String[] columns = line.split(",");
         if (columns.length != 5) {
@@ -68,15 +77,23 @@ public class GroupsData {
     }
 
     public static class GroupKey {
-        public final GroupDescription groupDescription;
+        public final String chromosomeID;
+        public final int startCM;
+        public final int endCM;
         
         public GroupKey(final GroupDescription groupDescription) {
-            this.groupDescription = groupDescription;
+            this(groupDescription.chromosomeID, groupDescription.startCM, groupDescription.endCM);
+        }
+        
+        public GroupKey(final String chromosomeID, int startCM, int endCM) {
+            this.chromosomeID = chromosomeID;
+            this.startCM = startCM;
+            this.endCM = endCM;
         }
         
         @Override
         public int hashCode() {
-            return groupDescription.groupID.hashCode() + groupDescription.chromosomeID.hashCode() + Integer.hashCode(groupDescription.startCM) + Integer.hashCode(groupDescription.endCM);
+            return chromosomeID.hashCode() + Integer.hashCode(startCM) + Integer.hashCode(endCM);
         }
         
         @Override
@@ -85,10 +102,10 @@ public class GroupsData {
                 return false;
             }
             final GroupKey other = (GroupKey)o;
-            return groupDescription.groupID.equals(other.groupDescription.groupID) &&
-                groupDescription.chromosomeID.equals(other.groupDescription.chromosomeID) &&
-                groupDescription.startCM == other.groupDescription.startCM &&
-                groupDescription.endCM == other.groupDescription.endCM;
+            return 
+                chromosomeID.equals(other.chromosomeID) &&
+                startCM == other.startCM &&
+                endCM == other.endCM;
         }
     }
         

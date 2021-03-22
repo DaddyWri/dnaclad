@@ -38,7 +38,7 @@ public class MatchesData {
         final double centimorgans = new Double(columns[5]);
         final int SNPs = Integer.parseInt(columns[6]);
 
-        final ChromosomeMatch cm = new ChromosomeMatch(chromosomeNumber, start, end, centimorgans, SNPs);
+        final ChromosomeMatch cm = new ChromosomeMatch(matchID, chromosomeNumber, start, end, centimorgans, SNPs);
         List<ChromosomeMatch> cl = keyedSet.get(matchID);
         if (cl == null) {
             cl = new ArrayList<>();
