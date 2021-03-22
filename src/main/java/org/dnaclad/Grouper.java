@@ -1,5 +1,7 @@
 package org.dnaclad;
 
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Collection;
 import java.util.PriorityQueue;
 import java.util.List;
@@ -82,24 +84,60 @@ public class Grouper {
     }
     
     private static ChromosomeMatch removeMostJoinyMatch(List<ChromosomeMatch> matches) {
-        // This is quick and dirty and very computationally lousy.
-        int bestMatchCount = -1;
+        // Iteration #4: try identifying articulations in the matches we have for the group.  These are places that seem to be
+        // in common across more than one match.  Use these articulations to try to optimize which match to remove, as follows:
+        // pick the match that crosses the most weighted articulations.  A weighted articulation includes the count of the number
+        // of times it has been seen, so we preferentially remove matches that link obviously distinct areas of the chromosome
+        // first.
+        
+        Map<Integer, Integer> articulations = new HashMap<>();
+        // Look through chromosome matches to build the articulations table
+        for (ChromosomeMatch match : matches) {
+            Integer startArticulation = new Integer(match.start);
+            Integer endArticulation = new Integer(match.end + 1);
+            Integer startCount = articulations.get(startArticulation);
+            if (startCount == null) {
+                startCount = new Integer(1);
+            } else {
+                startCount = new Integer(startCount + 1);
+            }
+            articulations.put(startArticulation, startCount);
+            Integer endCount = articulations.get(endArticulation);
+            if (endCount == null) {
+                endCount = new Integer(1);
+            } else {
+                endCount = new Integer(endCount + 1);
+            }
+            articulations.put(endArticulation, endCount);
+        }
+        
+        // Now, find the match that crosses the most articulations
+        double bestArticulationMetric = Double.NEGATIVE_INFINITY;
         ChromosomeMatch rval = null;
         for (ChromosomeMatch removalCandidate : matches) {
-            // Now go through the rest to see how many overlap.
-            int overlapCount = 0;
-            for (ChromosomeMatch checkCandidate : matches) {
-                if (removalCandidate.end < checkCandidate.start || removalCandidate.start > checkCandidate.end) {
-                    continue;
+            // How many articulations does it cross?
+            // By cross, I do not mean "align", I mean actually cross.
+            int weightedCrossings = 0;
+            int plainCrossings = 0;
+            for (Integer articulation : articulations.keySet()) {
+                // Does this one cross?
+                if (removalCandidate.start < articulation && removalCandidate.end >= articulation) {
+                    weightedCrossings += articulations.get(articulation);
+                    plainCrossings += 1;
                 }
-                overlapCount++;
             }
-            if (overlapCount > bestMatchCount) {
-                bestMatchCount = overlapCount;
+            double metric = ((double)weightedCrossings) / ((double)plainCrossings);
+            //System.out.println("Match "+removalCandidate.matchID+" weighted crossings "+weightedCrossings+" plain crossings "+plainCrossings+" metric "+metric);
+            if (metric > bestArticulationMetric) {
+                bestArticulationMetric = metric;
                 rval = removalCandidate;
             }
         }
         
+        if (rval == null) {
+            // No crossings found, so arbitrarily pick the first.
+            rval = matches.get(0);
+        }
         // Remove the match from the list
         matches.remove(rval);
         return rval;
@@ -141,13 +179,6 @@ public class Grouper {
             // Always add self
             rval.add(this);
             
-            // This is a recursive method which hierarchically breaks down a group into smaller components.
-            // At each level, the basic step is to remove the longest match and see what groups result from that.
-            // Already fully decomposed?  Then, nothing to add.
-            if (matchesInGroup.size() <= 1) {
-                return rval;
-            }
-
             // We need to find the "most joiny" match and remove that.
             // We heuristically define "most joiny" as being the one that has the most overlapping other matches in the group.
             // We tried just using match length as a proxy for this, but it fails to do the right thing much of the time.
@@ -157,7 +188,12 @@ public class Grouper {
 
             // Recursive step: remove longest match and regroup with what's left.
             while (true) {
+                if (scratchMatches.size() == 1) {
+                    // No further decomposition possible.
+                    return rval;
+                }
                 ChromosomeMatch longest = removeMostJoinyMatch(scratchMatches);
+                System.out.println("For group ("+startCM+" - "+endCM+"), removing "+longest.matchID+" ("+longest.start+" - "+longest.end+")");
                 // Build a new group with what is left
                 PriorityQueue<Group> startingGroups = new PriorityQueue<>();
                 for (ChromosomeMatch nextOne : scratchMatches) {
