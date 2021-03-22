@@ -82,6 +82,44 @@ public class Grouper {
     public static interface GroupWriter {
         public void write(String chromosomeID, int startCM, int endCM, List<ChromosomeMatch> matches);
     }
+
+    private static int findMostPopularArticulationPoint(List<ChromosomeMatch> matches, int excludeMe, int excludeMeToo) {
+        // Loop through the matches and find the articulation point that seems to have the most representation in the matches
+        Map<Integer, Integer> articulations = new HashMap<>();
+        // Look through chromosome matches to build the articulations table
+        for (ChromosomeMatch match : matches) {
+            Integer startArticulation = new Integer(match.start);
+            Integer endArticulation = new Integer(match.end + 1);
+            Integer startCount = articulations.get(startArticulation);
+            if (startCount == null) {
+                startCount = new Integer(1);
+            } else {
+                startCount = new Integer(startCount + 1);
+            }
+            articulations.put(startArticulation, startCount);
+            Integer endCount = articulations.get(endArticulation);
+            if (endCount == null) {
+                endCount = new Integer(1);
+            } else {
+                endCount = new Integer(endCount + 1);
+            }
+            articulations.put(endArticulation, endCount);
+        }
+
+        // Now, find the most popular
+        int currentBest = -1;
+        int bestValue = -1;
+        for (Integer articulation : articulations.keySet()) {
+            if (articulation != excludeMe && articulation != excludeMeToo) {
+                if (articulations.get(articulation) > bestValue) {
+                    bestValue = articulations.get(articulation);
+                    currentBest = articulation;
+                }
+            }
+        }
+        
+        return currentBest;
+    }
     
     private static ChromosomeMatch removeMostJoinyMatch(List<ChromosomeMatch> matches) {
         // Iteration #4: try identifying articulations in the matches we have for the group.  These are places that seem to be
@@ -179,46 +217,45 @@ public class Grouper {
             // Always add self
             rval.add(this);
             
-            // We need to find the "most joiny" match and remove that.
-            // We heuristically define "most joiny" as being the one that has the most overlapping other matches in the group.
-            // We tried just using match length as a proxy for this, but it fails to do the right thing much of the time.
-            
-            // Create a local list we can work with.
-            final List<ChromosomeMatch> scratchMatches = new ArrayList<>(matchesInGroup);
-
-            // Recursive step: remove longest match and regroup with what's left.
-            while (true) {
-                if (scratchMatches.size() == 1) {
-                    // No further decomposition possible.
-                    return rval;
-                }
-                ChromosomeMatch longest = removeMostJoinyMatch(scratchMatches);
-                System.out.println("For group ("+startCM+" - "+endCM+"), removing "+longest.matchID+" ("+longest.start+" - "+longest.end+")");
-                // Build a new group with what is left
-                PriorityQueue<Group> startingGroups = new PriorityQueue<>();
-                for (ChromosomeMatch nextOne : scratchMatches) {
-                    Group newGroup = new Group(nextOne);
-                    startingGroups.add(newGroup);
-                }
-                if (startingGroups.size() == 0) {
-                    return rval;
-                }
-                startingGroups = regroup(startingGroups);
-                if (startingGroups.size() > 1) {
-                    // Successfully broke up the group into two or more pieces!  Recursively build a return collection from this.
-                    while (true) {
-                        Group longestGroup = startingGroups.poll();
-                        if (longestGroup == null) {
-                            break;
-                        }
-                        // Recurse
-                        rval.addAll(longestGroup.decompose());
-                    }
-                    return rval;
-                }
-                // Loop back around and throw away another one, because we didn't split yet.
+            // Find the most popular articulation point, if any, provided it's not on the group boundary already
+            int articulationPoint = findMostPopularArticulationPoint(matchesInGroup, startCM, endCM + 1);
+            if (articulationPoint == -1) {
+                return rval;
             }
-                
+            
+            // Split the group according to this articulation point.  One batch of matches goes one way, and the other goes the other.
+            // Throw away any matches that straddle.
+            PriorityQueue<Group> leftSideMatches = new PriorityQueue<>();
+            PriorityQueue<Group> rightSideMatches = new PriorityQueue<>();
+            
+            for (ChromosomeMatch match : matchesInGroup) {
+                if (match.end < articulationPoint) {
+                    leftSideMatches.add(new Group(match));
+                } else if (articulationPoint <= match.start) {
+                    rightSideMatches.add(new Group(match));
+                }
+            }
+            
+            leftSideMatches = regroup(leftSideMatches);
+            rightSideMatches = regroup(rightSideMatches);
+            
+            while (true) {
+                Group g = leftSideMatches.poll();
+                if (g == null) {
+                    break;
+                }
+                rval.addAll(g.decompose());
+            }
+            
+            while (true) {
+                Group g = rightSideMatches.poll();
+                if (g == null) {
+                    break;
+                }
+                rval.addAll(g.decompose());
+            }
+            
+            return rval;
         }
         
         /**
