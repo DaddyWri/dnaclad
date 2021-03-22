@@ -7,11 +7,9 @@ import java.util.ArrayList;
 
 public class Grouper {
     
-    private final int minCM;
     private PriorityQueue<Group> groups;
     
-    public Grouper(int minCM) {
-        this.minCM = minCM;
+    public Grouper() {
         this.groups = new PriorityQueue<>();
     }
     
@@ -70,8 +68,6 @@ public class Grouper {
             if (longest == null) {
                 break;
             }
-            // Build a list of chromosome matches
-            out.write(longest.chromosomeID, longest.startCM, longest.endCM, longest.getMatchesInGroup());
             // Decompose the group.  Internally this is a recursive call so we need to only do it once here.
             final Collection<Group> subgroups = longest.decompose();
             for (final Group subgroup : subgroups) {
@@ -83,6 +79,30 @@ public class Grouper {
     
     public static interface GroupWriter {
         public void write(String chromosomeID, int startCM, int endCM, List<ChromosomeMatch> matches);
+    }
+    
+    private static ChromosomeMatch removeMostJoinyMatch(List<ChromosomeMatch> matches) {
+        // This is quick and dirty and very computationally lousy.
+        int bestMatchCount = -1;
+        ChromosomeMatch rval = null;
+        for (ChromosomeMatch removalCandidate : matches) {
+            // Now go through the rest to see how many overlap.
+            int overlapCount = 0;
+            for (ChromosomeMatch checkCandidate : matches) {
+                if (removalCandidate.end < checkCandidate.start || removalCandidate.start > checkCandidate.end) {
+                    continue;
+                }
+                overlapCount++;
+            }
+            if (overlapCount > bestMatchCount) {
+                bestMatchCount = overlapCount;
+                rval = removalCandidate;
+            }
+        }
+        
+        // Remove the match from the list
+        matches.remove(rval);
+        return rval;
     }
     
     /**
@@ -117,32 +137,30 @@ public class Grouper {
         }
         
         public Collection<Group> decompose() {
+            List<Group> rval = new ArrayList<>();
+            // Always add self
+            rval.add(this);
+            
             // This is a recursive method which hierarchically breaks down a group into smaller components.
             // At each level, the basic step is to remove the longest match and see what groups result from that.
             // Already fully decomposed?  Then, nothing to add.
             if (matchesInGroup.size() <= 1) {
-                return new ArrayList<>(0);
+                return rval;
             }
-            
-            // Build a priority queue we can work with
-            final PriorityQueue<ChromosomeMatch> orderedMatches = new PriorityQueue<>();
-            orderedMatches.addAll(matchesInGroup);
 
-            List<Group> rval = new ArrayList<>();
+            // We need to find the "most joiny" match and remove that.
+            // We heuristically define "most joiny" as being the one that has the most overlapping other matches in the group.
+            // We tried just using match length as a proxy for this, but it fails to do the right thing much of the time.
             
+            // Create a local list we can work with.
+            final List<ChromosomeMatch> scratchMatches = new ArrayList<>(matchesInGroup);
+
             // Recursive step: remove longest match and regroup with what's left.
             while (true) {
-                ChromosomeMatch longest = orderedMatches.poll();
-                if (longest == null) {
-                    return rval;
-                }
+                ChromosomeMatch longest = removeMostJoinyMatch(scratchMatches);
                 // Build a new group with what is left
                 PriorityQueue<Group> startingGroups = new PriorityQueue<>();
-                while (true) {
-                    ChromosomeMatch nextOne = orderedMatches.poll();
-                    if (nextOne == null) {
-                        break;
-                    }
+                for (ChromosomeMatch nextOne : scratchMatches) {
                     Group newGroup = new Group(nextOne);
                     startingGroups.add(newGroup);
                 }

@@ -34,13 +34,22 @@ public class Run {
     */
     
     public static void main(final String[] argv) throws Exception {
-        if (argv.length != 2) {
-            System.err.println("Usage: Run <chromosome_csv_file> <groups_csv_file>");
+        if (argv.length < 2 || argv.length > 3) {
+            System.err.println("Usage: Run <chromosome_csv_file> <groups_csv_file> [<chromosome_id>]");
             System.exit(-1);
         }
 
         final MatchesData matchesData = new MatchesData(new File[]{new File(argv[0])});
         final GroupsData groupsData = new GroupsData(new File(argv[1]));
+        
+        final String chromosomeID;
+        if (argv.length > 2) {
+            chromosomeID = argv[2];
+        } else {
+            chromosomeID = null;
+        }
+
+        final int minimumCM = 5000;
         
         /*
         final Collection<MatchProfile> matches = convertMatches(matchFileData);
@@ -87,11 +96,14 @@ public class Run {
         // Order: generally from left to right for every chromosome, EXCEPT that nested groups go smaller to larger, and the smaller groups precede the bigger ones
         // that contain them.  Obviously, matches are repeated because they can be part of multiple hierarchical groups.
         
-        final Grouper grouper = new Grouper(5);
+        final Grouper grouper = new Grouper();
         for (final String matchID : matchesData.getMatchIDs()) {
             final Collection<ChromosomeMatch> matches = matchesData.getMatches(matchID);
             for (final ChromosomeMatch cm : matches) {
-                grouper.addMatch(cm);
+                if (chromosomeID != null && cm.chromosomeNumber.equals(chromosomeID) &&
+                    cm.end - cm.start >= minimumCM) {
+                    grouper.addMatch(cm);
+                }
             }
         }
 
@@ -175,7 +187,7 @@ public class Run {
                     System.out.println("...");
                     break;
                 }
-                System.out.println(cm.matchID);
+                System.out.println(cm.matchID + " (" + cm.start + " - " + cm.end + ") [" + (cm.end - cm.start) + "]");
                 i++;
             }
         }
