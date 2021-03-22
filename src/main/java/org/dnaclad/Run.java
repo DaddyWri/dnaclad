@@ -180,7 +180,7 @@ public class Run {
             StringBuilder sb = new StringBuilder();
             sb.append(chromosomeID).append(": ").append(formatChromosome(maxChromosomeLength.get(chromosomeID), startCM, endCM, 120));
             System.out.println(sb.toString());
-            System.out.println("Group start = "+startCM+"; Group end = " + endCM + "; " + groupsData.findGroupDescription(chromosomeID, startCM, endCM));
+            System.out.println("Group start = "+startCM+"; Group end = " + endCM + "; [" + (endCM-startCM) + "]; "+ groupsData.findGroupDescription(chromosomeID, startCM, endCM));
             int i = 0;
             for (ChromosomeMatch cm : matches) {
                 if (i >=10) {

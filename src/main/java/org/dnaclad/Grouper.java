@@ -1,5 +1,7 @@
 package org.dnaclad;
 
+import java.util.Set;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Collection;
@@ -72,7 +74,16 @@ public class Grouper {
             }
             // Decompose the group.  Internally this is a recursive call so we need to only do it once here.
             final Collection<Group> subgroups = longest.decompose();
-            for (final Group subgroup : subgroups) {
+            
+            // Order the list by size of group, which is most easily done by sorting
+            Group[] groupArray = new Group[subgroups.size()];
+            int j = 0;
+            for (Group g : subgroups) {
+                groupArray[j++] = g;
+            }
+            java.util.Arrays.sort(groupArray);
+
+            for (final Group subgroup : groupArray) {
                 // Write the subgroup
                 out.write(subgroup.chromosomeID, subgroup.startCM, subgroup.endCM, subgroup.getMatchesInGroup());
             }
@@ -83,102 +94,74 @@ public class Grouper {
         public void write(String chromosomeID, int startCM, int endCM, List<ChromosomeMatch> matches);
     }
 
-    private static int findMostPopularArticulationPoint(List<ChromosomeMatch> matches, int excludeMe, int excludeMeToo) {
-        // Loop through the matches and find the articulation point that seems to have the most representation in the matches
+    private static List<Integer> findMostPopularArticulationPoints(List<ChromosomeMatch> matches, int excludeMe, int excludeMeToo) {
+        // Loop through the matches and find the articulation point that seems to have the most representation in the matches (weighted by the length of the match - shorter is
+        // less important)
         Map<Integer, Integer> articulations = new HashMap<>();
         // Look through chromosome matches to build the articulations table
         for (ChromosomeMatch match : matches) {
-            Integer startArticulation = new Integer(match.start);
-            Integer endArticulation = new Integer(match.end + 1);
-            Integer startCount = articulations.get(startArticulation);
-            if (startCount == null) {
-                startCount = new Integer(1);
-            } else {
-                startCount = new Integer(startCount + 1);
+            if (match.start != excludeMe) {
+                Integer startArticulation = new Integer(match.start);
+                Integer startCount = articulations.get(startArticulation);
+                if (startCount == null) {
+                    startCount = new Integer(match.end-match.start);
+                } else {
+                    startCount = new Integer(Math.max(startCount, match.end-match.start));
+                }
+                articulations.put(startArticulation, startCount);
             }
-            articulations.put(startArticulation, startCount);
-            Integer endCount = articulations.get(endArticulation);
-            if (endCount == null) {
-                endCount = new Integer(1);
-            } else {
-                endCount = new Integer(endCount + 1);
+            
+            if (match.end + 1 != excludeMeToo) {
+                Integer endArticulation = new Integer(match.end + 1);
+                Integer endCount = articulations.get(endArticulation);
+                if (endCount == null) {
+                    endCount = new Integer(match.end-match.start);
+                } else {
+                    endCount = new Integer(Math.max(endCount, match.end-match.start));
+                }
+                articulations.put(endArticulation, endCount);
             }
-            articulations.put(endArticulation, endCount);
         }
 
-        // Now, find the most popular
-        int currentBest = -1;
-        int bestValue = -1;
+        if (articulations.size() == 0) {
+            return new ArrayList<>(0);
+        }
+        
+        // Now, find the most popular N
+        // For this, we create a sorted list and use a cutoff based on how much lower than the best answer we are.
+        Articulation[] array = new Articulation[articulations.size()];
+        int i = 0;
         for (Integer articulation : articulations.keySet()) {
-            if (articulation != excludeMe && articulation != excludeMeToo) {
-                if (articulations.get(articulation) > bestValue) {
-                    bestValue = articulations.get(articulation);
-                    currentBest = articulation;
-                }
+            array[i++] = new Articulation(articulation, articulations.get(articulation));
+        }
+        java.util.Arrays.sort(array);
+        
+        List<Integer> output = new ArrayList<>();
+        int cutoffValue = (int)(((double)array[0].count) * 0.99);
+        for (Articulation a : array) {
+            //System.out.println("Looking at articulation point "+a.articulationPoint+" with score "+a.count+" for group ("+excludeMe+" - "+excludeMeToo+")");
+            if (a.count >= cutoffValue) {
+                //System.out.println("Considering articulation point "+a.articulationPoint+" with score "+a.count+" for group ("+excludeMe+" - "+excludeMeToo+")");
+                output.add(a.articulationPoint);
             }
         }
         
-        return currentBest;
+        return output;
     }
     
-    private static ChromosomeMatch removeMostJoinyMatch(List<ChromosomeMatch> matches) {
-        // Iteration #4: try identifying articulations in the matches we have for the group.  These are places that seem to be
-        // in common across more than one match.  Use these articulations to try to optimize which match to remove, as follows:
-        // pick the match that crosses the most weighted articulations.  A weighted articulation includes the count of the number
-        // of times it has been seen, so we preferentially remove matches that link obviously distinct areas of the chromosome
-        // first.
+    private static class Articulation implements Comparable<Articulation> {
+        final public Integer articulationPoint;
+        final public Integer count;
         
-        Map<Integer, Integer> articulations = new HashMap<>();
-        // Look through chromosome matches to build the articulations table
-        for (ChromosomeMatch match : matches) {
-            Integer startArticulation = new Integer(match.start);
-            Integer endArticulation = new Integer(match.end + 1);
-            Integer startCount = articulations.get(startArticulation);
-            if (startCount == null) {
-                startCount = new Integer(1);
-            } else {
-                startCount = new Integer(startCount + 1);
-            }
-            articulations.put(startArticulation, startCount);
-            Integer endCount = articulations.get(endArticulation);
-            if (endCount == null) {
-                endCount = new Integer(1);
-            } else {
-                endCount = new Integer(endCount + 1);
-            }
-            articulations.put(endArticulation, endCount);
+        public Articulation(final Integer articulationPoint, final Integer count) {
+            this.articulationPoint = articulationPoint;
+            this.count = count;
         }
         
-        // Now, find the match that crosses the most articulations
-        double bestArticulationMetric = Double.NEGATIVE_INFINITY;
-        ChromosomeMatch rval = null;
-        for (ChromosomeMatch removalCandidate : matches) {
-            // How many articulations does it cross?
-            // By cross, I do not mean "align", I mean actually cross.
-            int weightedCrossings = 0;
-            int plainCrossings = 0;
-            for (Integer articulation : articulations.keySet()) {
-                // Does this one cross?
-                if (removalCandidate.start < articulation && removalCandidate.end >= articulation) {
-                    weightedCrossings += articulations.get(articulation);
-                    plainCrossings += 1;
-                }
-            }
-            double metric = ((double)weightedCrossings) / ((double)plainCrossings);
-            //System.out.println("Match "+removalCandidate.matchID+" weighted crossings "+weightedCrossings+" plain crossings "+plainCrossings+" metric "+metric);
-            if (metric > bestArticulationMetric) {
-                bestArticulationMetric = metric;
-                rval = removalCandidate;
-            }
+        @Override
+        public int compareTo(Articulation other) {
+            return -count.compareTo(other.count);
         }
-        
-        if (rval == null) {
-            // No crossings found, so arbitrarily pick the first.
-            rval = matches.get(0);
-        }
-        // Remove the match from the list
-        matches.remove(rval);
-        return rval;
     }
     
     /**
@@ -213,46 +196,50 @@ public class Grouper {
         }
         
         public Collection<Group> decompose() {
-            List<Group> rval = new ArrayList<>();
+            Set<Group> rval = new HashSet<>();
             // Always add self
             rval.add(this);
             
-            // Find the most popular articulation point, if any, provided it's not on the group boundary already
-            int articulationPoint = findMostPopularArticulationPoint(matchesInGroup, startCM, endCM + 1);
-            if (articulationPoint == -1) {
+            // Find the most popular articulation points, if any, provided it's not on the group boundary already
+            List<Integer> articulationPoints = findMostPopularArticulationPoints(matchesInGroup, startCM, endCM + 1);
+            if (articulationPoints.size() == 0) {
                 return rval;
             }
             
-            // Split the group according to this articulation point.  One batch of matches goes one way, and the other goes the other.
-            // Throw away any matches that straddle.
-            PriorityQueue<Group> leftSideMatches = new PriorityQueue<>();
-            PriorityQueue<Group> rightSideMatches = new PriorityQueue<>();
-            
-            for (ChromosomeMatch match : matchesInGroup) {
-                if (match.end < articulationPoint) {
-                    leftSideMatches.add(new Group(match));
-                } else if (articulationPoint <= match.start) {
-                    rightSideMatches.add(new Group(match));
+            // It's very hard to know which single articulation point to pick.  The current strategy is therefore to generate alternate groupings based on
+            // the top N points.  This means that we also have to do deduplication of the final groups we are going to be returning.
+            for (Integer articulationPoint : articulationPoints) {
+                // Split the group according to this articulation point.  One batch of matches goes one way, and the other goes the other.
+                // Throw away any matches that straddle.
+                PriorityQueue<Group> leftSideMatches = new PriorityQueue<>();
+                PriorityQueue<Group> rightSideMatches = new PriorityQueue<>();
+                
+                for (ChromosomeMatch match : matchesInGroup) {
+                    if (match.end < articulationPoint) {
+                        leftSideMatches.add(new Group(match));
+                    } else if (articulationPoint <= match.start) {
+                        rightSideMatches.add(new Group(match));
+                    }
                 }
-            }
-            
-            leftSideMatches = regroup(leftSideMatches);
-            rightSideMatches = regroup(rightSideMatches);
-            
-            while (true) {
-                Group g = leftSideMatches.poll();
-                if (g == null) {
-                    break;
+                
+                leftSideMatches = regroup(leftSideMatches);
+                rightSideMatches = regroup(rightSideMatches);
+                
+                while (true) {
+                    Group g = leftSideMatches.poll();
+                    if (g == null) {
+                        break;
+                    }
+                    rval.addAll(g.decompose());
                 }
-                rval.addAll(g.decompose());
-            }
-            
-            while (true) {
-                Group g = rightSideMatches.poll();
-                if (g == null) {
-                    break;
+                
+                while (true) {
+                    Group g = rightSideMatches.poll();
+                    if (g == null) {
+                        break;
+                    }
+                    rval.addAll(g.decompose());
                 }
-                rval.addAll(g.decompose());
             }
             
             return rval;
@@ -295,5 +282,21 @@ public class Grouper {
             return 0;
         }
 
+        @Override
+        public boolean equals(final Object o) {
+            if (!(o instanceof Group)) {
+                return false;
+            }
+            Group other = (Group)o;
+            return chromosomeID.equals(other.chromosomeID) &&
+                startCM == other.startCM &&
+                endCM == other.endCM;
+        }
+        
+        @Override
+        public int hashCode() {
+            return chromosomeID.hashCode() + startCM + endCM;
+        }
+        
     }
 }
