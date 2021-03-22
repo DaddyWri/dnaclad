@@ -20,10 +20,8 @@ public class Grouper {
         final Group newGroup = new Group(match);
         groups.add(newGroup);
     }
-    
-    public void writeOutGroups(final GroupWriter out) {
-        // First, assemble all the groups
-        
+
+    private static PriorityQueue<Group> regroup(PriorityQueue<Group> groups) {
         // We iterate until there are no changes.  A change involves merging two groups together.
         // Each time we do this we build a new PriorityQueue with agglomerated groups.
         while (true) {
@@ -58,6 +56,12 @@ public class Grouper {
                 break;
             }
         }
+        return groups;
+    }
+    
+    public void writeOutGroups(final GroupWriter out) {
+        // First, assemble all the groups
+        groups = regroup(groups);
         
         // Grouping complete.
         // Output organized by length.  Later we can rearrange this.
@@ -85,7 +89,7 @@ public class Grouper {
     * A group is a collection of matches that all overlap.
     */
     public static class Group implements Comparable<Group> {
-        protected PriorityQueue<ChromosomeMatch> matchesInGroup = new PriorityQueue<>();
+        protected List<ChromosomeMatch> matchesInGroup = new ArrayList<>();
         public final String chromosomeID;
         protected int startCM;
         protected int endCM;
@@ -99,23 +103,69 @@ public class Grouper {
         
         public List<ChromosomeMatch> getMatchesInGroup() {
             // We must do this non-destructively, but we want to do it in length order.
+            final PriorityQueue<ChromosomeMatch> orderedMatches = new PriorityQueue<>();
+            orderedMatches.addAll(matchesInGroup);
             final List<ChromosomeMatch> rval = new ArrayList<>();
-            final PriorityQueue<ChromosomeMatch> newQueue = new PriorityQueue<>();
             while (true) {
-                final ChromosomeMatch cm = matchesInGroup.poll();
+                final ChromosomeMatch cm = orderedMatches.poll();
                 if (cm == null) {
                     break;
                 }
-                newQueue.add(cm);
                 rval.add(cm);
             }
-            matchesInGroup = newQueue;
             return rval;
         }
         
         public Collection<Group> decompose() {
-            // Not yet implemented
-            return new ArrayList<>(0);
+            // This is a recursive method which hierarchically breaks down a group into smaller components.
+            // At each level, the basic step is to remove the longest match and see what groups result from that.
+            // Already fully decomposed?  Then, nothing to add.
+            if (matchesInGroup.size() <= 1) {
+                return new ArrayList<>(0);
+            }
+            
+            // Build a priority queue we can work with
+            final PriorityQueue<ChromosomeMatch> orderedMatches = new PriorityQueue<>();
+            orderedMatches.addAll(matchesInGroup);
+
+            List<Group> rval = new ArrayList<>();
+            
+            // Recursive step: remove longest match and regroup with what's left.
+            while (true) {
+                ChromosomeMatch longest = orderedMatches.poll();
+                if (longest == null) {
+                    return rval;
+                }
+                // Build a new group with what is left
+                PriorityQueue<Group> startingGroups = new PriorityQueue<>();
+                while (true) {
+                    ChromosomeMatch nextOne = orderedMatches.poll();
+                    if (nextOne == null) {
+                        break;
+                    }
+                    Group newGroup = new Group(nextOne);
+                    startingGroups.add(newGroup);
+                }
+                if (startingGroups.size() == 0) {
+                    return rval;
+                }
+                startingGroups = regroup(startingGroups);
+                if (startingGroups.size() > 1) {
+                    // Successfully broke up the group into two or more pieces!  Recursively build a return collection from this.
+                    while (true) {
+                        Group longestGroup = startingGroups.poll();
+                        if (longestGroup == null) {
+                            break;
+                        }
+                        rval.add(longestGroup);
+                        // Recurse
+                        rval.addAll(longestGroup.decompose());
+                    }
+                    return rval;
+                }
+                // Loop back around and throw away another one, because we didn't split yet.
+            }
+                
         }
         
         /**
@@ -137,14 +187,9 @@ public class Grouper {
             if (group.endCM > this.endCM) {
                 this.endCM = group.endCM;
             }
-            // Merge the priority queues
-            while (true) {
-                final ChromosomeMatch cm = group.matchesInGroup.poll();
-                if (cm == null) {
-                    return true;
-                }
-                matchesInGroup.add(cm);
-            }
+            // Merge the matches
+            matchesInGroup.addAll(group.matchesInGroup);
+            return true;
         }
         
         @Override
