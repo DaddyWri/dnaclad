@@ -175,7 +175,6 @@ public class Grouper {
                         if (longestGroup == null) {
                             break;
                         }
-                        rval.add(longestGroup);
                         // Recurse
                         rval.addAll(longestGroup.decompose());
                     }
