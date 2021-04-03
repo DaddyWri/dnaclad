@@ -60,6 +60,7 @@ public class MatchList {
         @Override
         public void write(final ChromosomeMatch cm) {
             System.out.println(cm.matchID + " (" + cm.start + " - " + cm.end + ") [" + (cm.end - cm.start) + "]");
+            matchCount++;
         }
         
         public void finishUp() {
